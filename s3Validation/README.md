@@ -1,5 +1,7 @@
 # S3 Validation Tool
 
+> **Warning: Do not use this binary on production buckets, prefer empty buckets instead.**
+
 A self-contained binary that validates S3 capabilities on any S3-compatible endpoint (AWS S3, MinIO, Ceph, etc.).
 
 ## Quick Start
