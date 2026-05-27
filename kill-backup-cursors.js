@@ -8,6 +8,7 @@
 //
 // Usage:
 //   mongosh --nodb --eval "var mongoUri='mongodb://user:pass@host:port/?tls=true'; var dryRun=false" /path/to/kill-backup-cursors.js
+//   Note: --nodb ensures that the script doesn't automatically connect to mongodb://localhost:27017. Instead, the script manages its own connection.
 //
 // Variables (set via --eval):
 //   mongoUri  — full connection string including credentials and options; e.g. mongodb://user:pass@mongos:27017/?tls=true&authSource=admin
@@ -16,8 +17,6 @@
 // Required roles on the connecting user:
 //   atlasAdmin    — covers $currentOp (allUsers)
 //   killOpSession — covers killCursors
-//
-// Note: --nodb ensures that the script doesn't automatically connect to mongodb://localhost:27017. Instead, the script manages its own connection.
 
 "use strict";
 
