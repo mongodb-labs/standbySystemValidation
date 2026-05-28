@@ -4,8 +4,7 @@
 
 const THRESHOLD_GiB = 187;
 const THRESHOLD_BYTES = THRESHOLD_GiB * 1024 * 1024 * 1024;
-// Don't skip "local" since "local.oplog.rs" can be large.
-const SKIP_DBS = new Set(["admin", "config"]);
+const SKIP_DBS = new Set(["admin", "config", "local"]);
 
 const hello = db.adminCommand({ hello: 1 });
 const isSharded = hello.msg === "isdbgrid";
@@ -37,11 +36,12 @@ if (!isSharded) {
   for (const dbName of dbNames) {
     const targetDb = db.getSiblingDB(dbName);
     for (const coll of targetDb.getCollectionInfos({ type: "collection" })) {
-      const stats = getCollStats(targetDb, coll.name);
-      if (!stats) continue;
+      const docs = getCollStats(targetDb, coll.name);
+      if (!docs) continue;
 
-      const storageSize = stats.storageSize || 0;
-      const indexSizes = stats.indexSizes || {};
+      // Index 0 because there's no per-shard split.
+      const storageSize = docs[0].storageStats.storageSize || 0;
+      const indexSizes = docs[0].storageStats.indexSizes || {};
 
       totalCollsChecked++;
       totalIndexesChecked += Object.keys(indexSizes).length;
@@ -60,12 +60,13 @@ if (!isSharded) {
   for (const dbName of dbNames) {
     const targetDb = db.getSiblingDB(dbName);
     for (const coll of targetDb.getCollectionInfos({ type: "collection" })) {
-      const stats = getCollStats(targetDb, coll.name);
-      if (!stats || !stats.shards) continue;
+      const docs = getCollStats(targetDb, coll.name);
+      if (!docs) continue;
 
-      for (const [shardName, shardStats] of Object.entries(stats.shards)) {
-        const storageSize = shardStats.storageSize || 0;
-        const indexSizes = shardStats.indexSizes || {};
+      for (const doc of docs) {
+        const shardName = doc.shard;
+        const storageSize = doc.storageStats.storageSize || 0;
+        const indexSizes = doc.storageStats.indexSizes || {};
 
         totalCollsChecked++;
         totalIndexesChecked += Object.keys(indexSizes).length;
@@ -114,14 +115,12 @@ function printCollection(ns, storageSize, indexSizes) {
 
 function getCollStats(targetDb, collName) {
   try {
-    const result = targetDb.runCommand({ collStats: collName });
-    if (!result.ok) {
-      print(`  [WARN] collStats failed for ${targetDb.getName()}.${collName}: ${result.errmsg}`);
-      return null;
-    }
-    return result;
+    const docs = targetDb.getCollection(collName).aggregate([
+      { $collStats: { storageStats: {} } }
+    ]).toArray();
+    return docs.length ? docs : null;
   } catch (e) {
-    print(`  [WARN] collStats failed for ${targetDb.getName()}.${collName}: ${e.message}`);
+    print(`  [WARN] $collStats failed for ${targetDb.getName()}.${collName}: ${e.message}`);
     return null;
   }
 }
