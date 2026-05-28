@@ -2,23 +2,21 @@
 //
 // Scans a sharded cluster or replica set for backup cursors and kills any that are found. Topology is auto-detected.
 //
+// Requirements:
+//   Both kill-backup-cursors.js and connection-string.js must be downloaded and placed in the same directory.
+//   This script has been tested with mongosh 2.8.3. Earlier versions are not guaranteed to work.
+//
 // Usage:
-//   mongosh --nodb \
-//     --eval "var mongoUri='mongodb://host:port'; var user='u'; var pass='p'; var useTls=false; var dryRun=false" \
-//     /path/to/kill-backup-cursors.js
+//   mongosh --nodb --eval "var mongoUri='mongodb://user:pass@host:port/?tls=true'; var dryRun=false" /path/to/kill-backup-cursors.js
+//   Note: --nodb ensures that the script doesn't automatically connect to mongodb://localhost:27017. Instead, the script manages its own connection.
 //
 // Variables (set via --eval):
-//   mongoUri  — mongos URI for sharded clusters, replica set URI for replica sets; don't specify credentials in the URI
-//   user      — MongoDB username
-//   pass      — MongoDB password
-//   useTls       — true/false (please set to true for Atlas clusters)
+//   mongoUri  — full connection string including credentials and options; e.g. mongodb://user:pass@mongos:27017/?tls=true&authSource=admin
 //   dryRun    — (optional) true to log what would be killed without actually killing anything; defaults to false
 //
 // Required roles on the connecting user:
 //   atlasAdmin    — covers $currentOp (allUsers)
 //   killOpSession — covers killCursors
-//
-// Note: this has been tested on Atlas clusters. This may not work if a MongoDB deployment has custom TLS / auth settings.
 
 "use strict";
 
@@ -29,18 +27,15 @@
 if (typeof mongoUri === "undefined" || !mongoUri) {
   throw new Error("mongoUri is required");
 }
-if (typeof user === "undefined" || !user) {
-  throw new Error("user is required");
-}
-if (typeof pass === "undefined" || !pass) {
-  throw new Error("pass is required");
-}
-if (typeof useTls === "undefined") {
-  throw new Error("useTls is required (true or false)");
-}
 if (typeof dryRun === "undefined") {
   var dryRun = false;
 }
+
+load(__dirname + "/connection-string.js");
+// Works around mongosh 2.8.3 not supporting ES2020 optional chaining (?.).
+const parsedUri = new ConnectionString(mongoUri, { looseValidation: true });
+const user = decodeURIComponent(parsedUri.username);
+const pass = decodeURIComponent(parsedUri.password);
 
 // ---------------------------------------------------------------------------
 // Step 1: connect and detect topology
@@ -48,10 +43,7 @@ if (typeof dryRun === "undefined") {
 
 const redactedUri = mongoUri.replace(/:\/\/[^@]*@/, "://<credentials>@");
 print(`Connecting to ${redactedUri}...`);
-const effectiveUri = useTls
-  ? mongoUri + (mongoUri.includes("?") ? "&" : "?") + "tls=true"
-  : mongoUri;
-const conn = new Mongo(effectiveUri);
+const conn = new Mongo(mongoUri);
 const adminDb = conn.getDB("admin");
 if (!adminDb.auth(user, pass)) {
   throw new Error("Authentication failed for user: " + user);
@@ -222,8 +214,19 @@ quit(totalErrors > 0 ? 1 : 0);
 // ---------------------------------------------------------------------------
 
 function directUri(host) {
-  const tlsParam = useTls ? "&tls=true" : "";
-  return `mongodb://${host}/?directConnection=true&authSource=admin${tlsParam}`;
+  const uri = parsedUri.clone();
+  if (uri.isSRV) {
+    // Direct connections require "mongodb://"."
+    uri.protocol = "mongodb:";
+    // SRV implies TLS. Make it explicit since we're using "mongodb://".
+    if (!uri.searchParams.has("tls")) {
+      uri.searchParams.set("tls", "true");
+    }
+  }
+  uri.hosts = [host];
+  uri.searchParams.set("directConnection", "true");
+  uri.searchParams.delete("replicaSet");
+  return uri.toString();
 }
 
 function backupCursorPipeline() {
