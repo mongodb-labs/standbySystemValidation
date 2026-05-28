@@ -15,13 +15,16 @@ if (!isSharded && !hello.setName) {
   quit(1);
 }
 
-const dbNames = db.adminCommand({ listDatabases: 1, nameOnly: true })
-  .databases.map(d => d.name)
-  .filter(n => !SKIP_DBS.has(n));
+const listDbResult = db.adminCommand({ listDatabases: 1, nameOnly: true });
+if (!listDbResult.ok) {
+  print(`Error: listDatabases failed: ${listDbResult.errmsg}`);
+  quit(1);
+}
+const dbNames = listDbResult.databases.map(d => d.name).filter(n => !SKIP_DBS.has(n));
 
 let totalData = 0;
 let totalIndexes = 0;
-let totalCollsChecked = 0;
+let totalCollsChecked = 0;       // unique collections (replica set) or shard-collection pairs (sharded)
 let totalIndexesChecked = 0;
 
 print(`Threshold: ${THRESHOLD_GiB} GiB  |  topology: ${isSharded ? "sharded" : `replica set (${hello.setName})`}`);
@@ -87,7 +90,8 @@ if (!isSharded) {
 }
 
 print("\n" + "=".repeat(60));
-print(`Checked: ${totalCollsChecked} collection(s), ${totalIndexesChecked} index(es)`);
+const collLabel = isSharded ? "shard-collection pair(s)" : "collection(s)";
+print(`Checked: ${totalCollsChecked} ${collLabel}, ${totalIndexesChecked} index(es)`);
 print(`Warned: ${totalData} oversized data file(s), ${totalIndexes} oversized index file(s)`);
 
 function toGiB(bytes) {
@@ -110,16 +114,16 @@ function printCollection(ns, storageSize, indexSizes) {
 
 function getCollStats(targetDb, collName) {
   try {
-    return targetDb.runCommand({ collStats: collName });
+    const result = targetDb.runCommand({ collStats: collName });
+    if (!result.ok) {
+      print(`  [WARN] collStats failed for ${targetDb.getName()}.${collName}: ${result.errmsg}`);
+      return null;
+    }
+    return result;
   } catch (e) {
     print(`  [WARN] collStats failed for ${targetDb.getName()}.${collName}: ${e.message}`);
     return null;
   }
-}
-
-function isFlagged(storageSize, indexSizes) {
-  return storageSize > THRESHOLD_BYTES ||
-    Object.values(indexSizes).some(s => s > THRESHOLD_BYTES);
 }
 
 function countFlags(storageSize, indexSizes) {
