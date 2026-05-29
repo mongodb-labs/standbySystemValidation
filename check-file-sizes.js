@@ -30,9 +30,6 @@ print(`Threshold: ${THRESHOLD_GiB} GiB  |  topology: ${isSharded ? "sharded" : `
 print("=".repeat(60));
 
 if (!isSharded) {
-  const label = hello.setName;
-  print(`Replica set: ${label}`);
-
   for (const dbName of dbNames) {
     const targetDb = db.getSiblingDB(dbName);
     for (const coll of targetDb.getCollectionInfos({ type: "collection" })) {
@@ -46,7 +43,7 @@ if (!isSharded) {
       totalCollsChecked++;
       totalIndexesChecked += Object.keys(indexSizes).length;
 
-      printCollection(`${dbName}.${coll.name}`, storageSize, indexSizes);
+      printWarnIfOver(`${dbName}.${coll.name}`, storageSize, indexSizes);
       const c = countFlags(storageSize, indexSizes);
       totalData += c.data;
       totalIndexes += c.indexes;
@@ -71,8 +68,10 @@ if (!isSharded) {
         totalCollsChecked++;
         totalIndexesChecked += Object.keys(indexSizes).length;
 
-        if (!byShards[shardName]) byShards[shardName] = [];
-        byShards[shardName].push({ ns: `${dbName}.${coll.name}`, storageSize, indexSizes });
+        if (!byShards[shardName]) byShards[shardName] = { collCount: 0, indexCount: 0, entries: [] };
+        byShards[shardName].collCount++;
+        byShards[shardName].indexCount += Object.keys(indexSizes).length;
+        byShards[shardName].entries.push({ ns: `${dbName}.${coll.name}`, storageSize, indexSizes });
 
         const c = countFlags(storageSize, indexSizes);
         totalData += c.data;
@@ -81,11 +80,11 @@ if (!isSharded) {
     }
   }
 
-  for (const [shardName, entries] of Object.entries(byShards)) {
-    print(`\nSHARD: ${shardName}`);
+  for (const [shardName, { collCount, indexCount, entries }] of Object.entries(byShards)) {
+    print(`\nSHARD: ${shardName}  |  checked ${collCount} collection(s), ${indexCount} index(es)`);
     print("-".repeat(40));
     for (const { ns, storageSize, indexSizes } of entries) {
-      printCollection(ns, storageSize, indexSizes);
+      printWarnIfOver(ns, storageSize, indexSizes);
     }
   }
 }
@@ -103,13 +102,15 @@ function pad(str, width) {
   return String(str).padStart(width);
 }
 
-function printCollection(ns, storageSize, indexSizes) {
-  const dataFlag = storageSize > THRESHOLD_BYTES ? "  [WARN]" : "";
+function printWarnIfOver(ns, storageSize, indexSizes) {
+  const dataOver = storageSize > THRESHOLD_BYTES;
+  const overIndexes = Object.entries(indexSizes).filter(([, s]) => s > THRESHOLD_BYTES);
+  if (!dataOver && overIndexes.length === 0) return;
+
   print(`\n  ${ns}`);
-  print(`    data: ${pad(toGiB(storageSize), 8)} GiB${dataFlag}`);
-  for (const [name, size] of Object.entries(indexSizes)) {
-    const idxFlag = size > THRESHOLD_BYTES ? "  [WARN]" : "";
-    print(`    ${name}: ${pad(toGiB(size), 8)} GiB${idxFlag}`);
+  if (dataOver) print(`    data: ${pad(toGiB(storageSize), 8)} GiB  [WARN]`);
+  for (const [name, size] of overIndexes) {
+    print(`    ${name}: ${pad(toGiB(size), 8)} GiB  [WARN]`);
   }
 }
 
