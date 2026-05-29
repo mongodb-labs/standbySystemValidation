@@ -92,7 +92,7 @@ if (!isSharded) {
 print("\n" + "=".repeat(60));
 const collLabel = isSharded ? "shard-collection pair(s)" : "collection(s)";
 print(`Checked: ${totalCollsChecked} ${collLabel}, ${totalIndexesChecked} index(es)`);
-print(`Warned: ${totalData} oversized data file(s), ${totalIndexes} oversized index file(s)`);
+print(`Warned: ${totalData} large data file(s), ${totalIndexes} large index file(s)`);
 
 function toGiB(bytes) {
   return (bytes / (1024 * 1024 * 1024)).toFixed(1);
