@@ -579,8 +579,8 @@ func testPutObjectIfMatch(ctx context.Context, tc *TestContext) TestResult {
 	}
 	result.Details = append(result.Details, fmt.Sprintf("Initial ETag: %s", etag))
 
-	// Test wrong ETag
-	wrongETag := "\"wrongetag123\""
+	// Use a valid MD5-formatted ETag that won't match; some implementations reject malformed ETags with 400.
+	wrongETag := "\"00000000000000000000000000000000\""
 	err = tc.client.PutObjectIfMatch(ctx, tc.bucket, conditionalTestObjectKey, []byte(updatedContent), wrongETag)
 	if err != s3client.ErrPreconditionFailed {
 		result.Duration = time.Since(start)
